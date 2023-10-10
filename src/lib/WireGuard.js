@@ -11,6 +11,7 @@ const Util = require('./Util');
 const ServerError = require('./ServerError');
 
 const {
+  WG_DEVICE,
   WG_PATH,
   WG_HOST,
   WG_PORT,
@@ -95,11 +96,21 @@ module.exports = class WireGuard {
 [Interface]
 PrivateKey = ${config.server.privateKey}
 Address = ${config.server.address}/24
-ListenPort = 51820
+ListenPort = ${WG_PORT}
 PreUp = ${WG_PRE_UP}
-PostUp = ${WG_POST_UP}
+PostUp = iptables -I INPUT -p udp --dport ${WG_PORT} -j ACCEPT
+PostUp = iptables -I FORWARD -i ${WG_DEVICE} -o wg0 -j ACCEPT
+PostUp = iptables -I FORWARD -i wg0 -j ACCEPT
+PostUp = iptables -t nat -A POSTROUTING -o ${WG_DEVICE} -j MASQUERADE
+PostUp = ip6tables -I FORWARD -i ${WG_DEVICE} -j ACCEPT
+PostUp = ip6tables -t nat -A POSTROUTING -o ${WG_DEVICE} -j MASQUERADE
 PreDown = ${WG_PRE_DOWN}
-PostDown = ${WG_POST_DOWN}
+PostDown = iptables -D INPUT -p udp --dport ${WG_PORT} -j ACCEPT
+PostDown = iptables -D FORWARD -i ${WG_DEVICE} -o wg0 -j ACCEPT
+PostDown = iptables -D FORWARD -i wg0 -j ACCEPT
+PostDown = iptables -t nat -D POSTROUTING -o ${WG_DEVICE} -j MASQUERADE
+PostDown = ip6tables -D FORWARD -i ${WG_DEVICE} -j ACCEPT
+PostDown = ip6tables -t nat -D POSTROUTING -o ${WG_DEVICE} -j MASQUERADE"
 `;
 
     for (const [clientId, client] of Object.entries(config.clients)) {
