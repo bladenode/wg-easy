@@ -1,24 +1,20 @@
-# There's an issue with node:16-alpine.
-# On Raspberry Pi, the following crash happens:
+# As a workaround we have to build on nodejs 18
+# nodejs 20 hangs on build with armv6/armv7
+FROM docker.io/library/node:18-alpine AS build_node_modules
 
-# #FailureMessage Object: 0x7e87753c
-# #
-# # Fatal error in , line 0
-# # unreachable code
-# #
-# #
-# #
-
-FROM docker.io/library/node:14-alpine@sha256:dc92f36e7cd917816fa2df041d4e9081453366381a00f40398d99e9392e78664 AS build_node_modules
+# Update npm to latest
+RUN npm install -g npm@latest
 
 # Copy Web UI
-COPY src/ /app/
+COPY src /app
 WORKDIR /app
-RUN npm ci --production
+RUN npm ci --omit=dev &&\
+    mv node_modules /node_modules
 
 # Copy build result to a new image.
 # This saves a lot of disk space.
-FROM docker.io/library/node:14-alpine@sha256:dc92f36e7cd917816fa2df041d4e9081453366381a00f40398d99e9392e78664
+FROM docker.io/library/node:20-alpine
+HEALTHCHECK CMD /usr/bin/timeout 5s /bin/sh -c "/usr/bin/wg show | /bin/grep -q interface || exit 1" --interval=1m --timeout=5s --retries=3
 COPY --from=build_node_modules /app /app
 
 # Move node_modules one directory up, so during development
@@ -28,19 +24,18 @@ COPY --from=build_node_modules /app /app
 # Also, some node_modules might be native, and
 # the architecture & OS of your development machine might differ
 # than what runs inside of docker.
-RUN mv /app/node_modules /node_modules
-
-# Enable this to run `npm run serve`
-RUN npm i -g nodemon
+COPY --from=build_node_modules /node_modules /node_modules
 
 # Install Linux packages
-RUN apk add -U --no-cache \
-  wireguard-tools \
-  dumb-init
+RUN apk add --no-cache \
+    dpkg \
+    dumb-init \
+    iptables \
+    iptables-legacy \
+    wireguard-tools
 
-# Expose Ports
-EXPOSE 51820/udp
-EXPOSE 51821/tcp
+# Use iptables-legacy
+RUN update-alternatives --install /sbin/iptables iptables /sbin/iptables-legacy 10 --slave /sbin/iptables-restore iptables-restore /sbin/iptables-legacy-restore --slave /sbin/iptables-save iptables-save /sbin/iptables-legacy-save
 
 # Set Environment
 ENV DEBUG=Server,WireGuard
